@@ -16,21 +16,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect deploy key secret
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          printf '%s' "$DEPLOY_SSH_KEY" > /tmp/deploy_key
-          echo "byte length: $(wc -c < /tmp/deploy_key)"
-          echo "line count:  $(wc -l < /tmp/deploy_key)"
-          echo "first line:  $(head -n1 /tmp/deploy_key)"
-          echo "last line:   $(tail -n1 /tmp/deploy_key)"
-          chmod 600 /tmp/deploy_key
-          echo "---- public key derived from secret ----"
-          ssh-keygen -y -f /tmp/deploy_key || echo "FAILED to parse private key"
-          echo "---- fingerprint ----"
-          ssh-keygen -lf /tmp/deploy_key || echo "FAILED to fingerprint"
-
       - name: SSH deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -38,7 +23,6 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          debug: true
           script_stop: true
           script: |
             set -euo pipefail
