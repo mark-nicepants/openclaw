@@ -1,4 +1,4 @@
-# openclaw-deploy
+x# openclaw-deploy
 
 Dockerized [OpenClaw](https://docs.openclaw.ai/install/docker) gateway running 24/7 on **shady** (`49.13.138.137`), reachable at `https://claw.mooibroek.dev/` through Nginx Proxy Manager. Updates are pushed via GitHub Actions on `main`.
 
