@@ -62,6 +62,13 @@ jobs:
             exit 1
           fi
           docker compose pull
+          # OPENCLAW_SKIP_ONBOARDING skips the wizard but does NOT write
+          # gateway.mode, so the gateway errors with "Missing config" and
+          # refuses to start. Write the minimal config once (idempotent —
+          # persists in ./data/config). Auth still comes from the token env.
+          docker compose run --rm --no-deps --entrypoint node openclaw-gateway \
+            dist/index.js config set --batch-json \
+            '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"}]'
           docker compose up -d --remove-orphans
           docker compose ps
           for i in $(seq 1 30); do

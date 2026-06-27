@@ -147,3 +147,12 @@ These are deliberately not configured in v1. Add them after the gateway is up:
 - **Permission errors on `/home/node/.openclaw`**: `sudo chown -R 1000:1000 /var/docker_projects/openclaw/data`.
 - **Control UI 502 from NPM**: confirm NPM container is on the same network as `openclaw-gateway` and the forward host is the container name, not `127.0.0.1`.
 - **Unhealthy container**: `docker compose logs --tail=200 openclaw-gateway`.
+- **`Missing config. Run openclaw setup or set gateway.mode=local`**: `OPENCLAW_SKIP_ONBOARDING=1` skips the wizard but never writes `gateway.mode`, and there is no env var for it. The gateway refuses to start without it. Write the config once (persists in `./data/config`); the deploy workflow does this automatically, or run it by hand on shady:
+
+  ```bash
+  cd /var/docker_projects/openclaw
+  docker compose run --rm --no-deps --entrypoint node openclaw-gateway \
+    dist/index.js config set --batch-json \
+    '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"}]'
+  docker compose up -d
+  ```
