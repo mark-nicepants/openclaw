@@ -1,0 +1,44 @@
+name: Deploy OpenClaw to shady
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-openclaw
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /var/docker_projects/openclaw
+            git fetch --prune origin
+            git reset --hard origin/main
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker compose ps
+            # Wait for gateway to become healthy
+            for i in $(seq 1 30); do
+              status=$(docker inspect -f '{{.State.Health.Status}}' openclaw-gateway 2>/dev/null || echo "missing")
+              echo "openclaw-gateway health: $status (try $i)"
+              [ "$status" = "healthy" ] && exit 0
+              sleep 5
+            done
+            echo "Gateway did not become healthy in time" >&2
+            docker compose logs --tail=200 openclaw-gateway
+            exit 1

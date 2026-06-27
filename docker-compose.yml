@@ -1,0 +1,74 @@
+name: openclaw
+
+# External Docker network shared with Nginx Proxy Manager.
+# Set PROXY_NETWORK in .env to the actual NPM network name on shady
+# (find with: docker network ls).
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK}
+
+volumes:
+  openclaw_home:
+    name: openclaw_home
+
+services:
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    init: true
+    environment:
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
+      OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
+      OPENCLAW_SANDBOX: ${OPENCLAW_SANDBOX:-1}
+      OPENCLAW_DOCKER_SOCKET: ${OPENCLAW_DOCKER_SOCKET:-/var/run/docker.sock}
+      OPENCLAW_SKIP_ONBOARDING: ${OPENCLAW_SKIP_ONBOARDING:-1}
+      TZ: ${TZ:-Europe/Amsterdam}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./data/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/workspace}:/home/node/.openclaw/workspace
+      - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR:-./data/secrets}:/home/node/.config/openclaw
+      - openclaw_home:/home/node
+      # Required for OPENCLAW_SANDBOX=1 — gateway spawns sandbox containers
+      # on the host Docker daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    expose:
+      - "18789"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:18789/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Post-start tool container. Not started by `docker compose up` (uses the
+  # `tools` profile). Invoke with: docker compose run --rm openclaw-cli <args>
+  openclaw-cli:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: openclaw-cli
+    profiles: ["tools"]
+    network_mode: "service:openclaw-gateway"
+    environment:
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      TZ: ${TZ:-Europe/Amsterdam}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./data/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/workspace}:/home/node/.openclaw/workspace
+      - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR:-./data/secrets}:/home/node/.config/openclaw
+      - openclaw_home:/home/node
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
