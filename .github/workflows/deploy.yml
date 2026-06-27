@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docker-compose.yml'
+      - '.env.example'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -12,33 +13,64 @@ concurrency:
   group: deploy-openclaw
   cancel-in-progress: false
 
+env:
+  DEPLOY_DIR: /var/docker_projects/openclaw
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: SSH deploy
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
-          script_stop: true
-          script: |
-            set -euo pipefail
-            cd /var/docker_projects/openclaw
-            git fetch --prune origin
-            git reset --hard origin/main
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker compose ps
-            # Wait for gateway to become healthy
-            for i in $(seq 1 30); do
-              status=$(docker inspect -f '{{.State.Health.Status}}' openclaw-gateway 2>/dev/null || echo "missing")
-              echo "openclaw-gateway health: $status (try $i)"
-              [ "$status" = "healthy" ] && exit 0
-              sleep 5
-            done
-            echo "Gateway did not become healthy in time" >&2
-            docker compose logs --tail=200 openclaw-gateway
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          PORT="${{ secrets.DEPLOY_PORT || 22 }}"
+          ssh-keyscan -p "$PORT" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync repo to host
+        run: |
+          set -euo pipefail
+          PORT="${{ secrets.DEPLOY_PORT || 22 }}"
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "mkdir -p '$DEPLOY_DIR'"
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='data/' \
+            -e "ssh -i ~/.ssh/deploy_key -p $PORT" \
+            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$DEPLOY_DIR/"
+
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          PORT="${{ secrets.DEPLOY_PORT || 22 }}"
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "DEPLOY_DIR='$DEPLOY_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          if [ ! -f .env ]; then
+            echo "ERROR: $DEPLOY_DIR/.env is missing. Create it from .env.example before deploying." >&2
             exit 1
+          fi
+          docker compose pull
+          docker compose up -d --remove-orphans
+          docker compose ps
+          for i in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' openclaw-gateway 2>/dev/null || echo missing)"
+            echo "openclaw-gateway health: $status (try $i)"
+            [ "$status" = "healthy" ] && exit 0
+            sleep 5
+          done
+          echo "Gateway did not become healthy in time" >&2
+          docker compose logs --tail=200 openclaw-gateway
+          exit 1
+          REMOTE
