@@ -156,3 +156,19 @@ These are deliberately not configured in v1. Add them after the gateway is up:
     '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"}]'
   docker compose up -d
   ```
+- **Control UI: "Browser origin not allowed"**: the gateway only allows `localhost` origins by default and rejects the browser served via `https://claw.mooibroek.dev`. The deploy workflow writes the domain into `gateway.controlUi.allowedOrigins`; to add another origin by hand:
+
+  ```bash
+  docker compose run --rm --no-deps --entrypoint node openclaw-gateway \
+    dist/index.js config set --batch-json \
+    '[{"path":"gateway.controlUi.allowedOrigins","value":["https://claw.mooibroek.dev","http://localhost:18789","http://127.0.0.1:18789"]}]'
+  docker compose up -d openclaw-gateway   # restart to apply
+  ```
+- **Control UI: "pairing required: device is not approved"**: each new browser must be approved once. List and approve the pending request:
+
+  ```bash
+  docker compose run --rm --entrypoint node openclaw-cli dist/index.js devices list
+  docker compose run --rm --entrypoint node openclaw-cli dist/index.js devices approve <requestId>
+  ```
+- **NPM 525 / "Internal Server Error" over HTTPS**: Cloudflare (Full/strict) couldn't TLS-handshake the origin because the NPM proxy host had no SSL. Request a Let's Encrypt cert on the `claw` proxy host (or install a Cloudflare Origin cert) and enable Force SSL.
+- **Control UI loads but won't connect (WebSocket)**: enable **Websockets Support** on the `claw` proxy host in NPM — without it nginx drops the `Upgrade` headers and `wss://` fails.
